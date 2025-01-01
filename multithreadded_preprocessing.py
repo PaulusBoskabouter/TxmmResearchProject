@@ -1,8 +1,13 @@
 import os
-from time import sleep, time
-from spellchecker import SpellChecker
+import json
 import threading
-import statistics
+import os
+import spacy
+import nltk
+import gensim
+from nltk.corpus import stopwords
+import numpy as np
+
 
 class Thread(threading.Thread):
     def __init__(self, i, start_year, end_year):
@@ -10,112 +15,89 @@ class Thread(threading.Thread):
         self.id = i
         self.start_year = start_year
         self.stop_year = end_year
-        self.domain = {}
+        self.year_data = {}
+    
+
+    def preprocess(self, text:str) -> list[str]:
+        text = text.lower()
+        doc = nlp(text)
         
+        # 4. Lemmatization
+        lemmatized_tokens = [token.lemma_ for token in doc if not token.is_stop]
+
+        return lemmatized_tokens
+
+
+
+    # Create document vectors
+    def get_document_vector(self, doc, model):
+        """Compute the document vector as the average of the word vectors."""
+        valid_words = [word for word in doc if word in model.key_to_index]
+        if not valid_words:  # If no valid words, return a zero vector
+            return None, True
         
+        vector = np.array([model[word] for word in valid_words])
+        
+        word_vectors = np.mean(vector, axis=0)
+        print(vector)
+        print(word_vectors)
+        print(vector.shape)
+        print(word_vectors.shape)
+        quit()
+        return word_vectors.tolist(), False
+
     def run(self):
-        print(f"T{self.id} is Starting! ({self.start_year}-{self.stop_year})")
         self.iterate_files()
 
+
     def iterate_files(self):
-        root_path = ".\\dataset\\"
-        processed_path = ".\\preprocessed\\"
+        for year in range(self.start_year, self.stop_year+1):
+            if not os.path.isfile(f"{year}.json"):
+                print(f"{self.id:2}: Working on year {year} ({self.start_year}-{self.stop_year})")
+                paragraph_data = {}
+                year = str(year)
+                files = os.listdir(os.path.join(root_path, str(year)))
+                for f in range(len(files)):
+                    # Visualisation stuff
+                    file = files[f]
+                    preprocessed_paragraphs = []
+                    document_vectors = []
+                    s = file.split('_')
+                    file_name = s[1].lower()
+                    idx = s[0]
+                    used_articles = 0
+                    with open(os.path.join(root_path, year, file), 'r', encoding='utf-8') as f:
+                        text = f.read().lower()  
+                        paragraphs = text.split("---")[:-1] # Last "paragraph" always consists of just \n so we remove this
+                        for article in paragraphs:
+                            preprocessed = self.preprocess(article)
+                            vector, filtered = self.get_document_vector(preprocessed, fasttext_model)
+                            if not filtered:
+                                preprocessed_paragraphs.append(preprocessed)
+                                document_vectors.append(vector)
+                                used_articles +=1
+                    paragraph_data[idx] = {'name':file_name, 'num_articles':len(paragraphs),'used_articles':used_articles, 'paragraphs':preprocessed_paragraphs, 'embedded':document_vectors}
+                self.save(filename=f"{year}.json", data=paragraph_data)
+                paragraph_data.clear()
+            else:
+                print(f"{self.id:2}: Skipping year {year} ({self.start_year}-{self.stop_year})")
         
-        for year in range(self.start_year, self.stop_year):
-            year = str(year)
-            
-            files = os.listdir(os.path.join(root_path, year))
-            
-            
-            num_fixed_files = 0
-            total_files = len(files)
-            start = time()
-            for file in files:
-                with open(os.path.join(root_path, year, file), 'r', encoding='utf-8') as f:
-                    text = f.read()  
-                    if filter_spelling_mistakes(text, file_loc=os.path.join(processed_path, year), file_name=file):
-                        num_fixed_files += 1
-                    f.close()
+        
+        
+        
+    def save(self, filename, data):
+        with open(filename, 'w', encoding='utf-8') as file:
+            json.dump(data, file, ensure_ascii=False, indent=2)
+            file.close()
 
-            
-            print(f"{year}: {num_fixed_files} out of {total_files} in {(time()-start)/60:.1f} Minutes")
-        
-        
+
         
     
     
 
 
 
-def filter_spelling_mistakes(text, file_loc, file_name, language='nl'):
-    """
-    Identify spelling mistakes in the text based on the specified language.
-    
-    Parameters:
-        text (str): Input text to analyze.
-        language (str): The language for spell checking (default is 'nl' for Dutch).
-        
-    Returns:
-        list: A list of words identified as spelling mistakes.
-    """
-    # Initialize the spell checker for the given language
-    spell = SpellChecker(language=language)
-
-    # Split text into words
-    words = text.split()
-    # Find words not in the dictionary
-    misspelled = list(spell.unknown(words))
-
-    mispelled_ratio = round(len(misspelled)/len(words), 2)
-    
-
-    corrected = {}
-    
-
-
-    for i in range(len(misspelled)):
-        start = time()
-        spell_correction = spell.correction(misspelled[i])
-        change = False
-        if misspelled[i][:-1].lower() != spell_correction: # If not this then words with interpunction get corrected.
-            
-            if spell_correction is None: # No correction could be found, we omit the word.
-                spell_correction = "_"
-            corrected[misspelled[i]] = spell_correction 
-            change = True
-
-        if change:
-            print(f"Fixed {misspelled[i]} into {spell_correction} ({time()-start})\t[{i}/{len(misspelled)}]")
-        else:
-            print(f"Fixed {misspelled[i]} into itself ({time()-start})\t[{i}/{len(misspelled)}]")
-
-
-
-
-
-    if mispelled_ratio < .25:
-        fixed = ""
-        os.makedirs(file_loc, exist_ok=True)
-        for w in range(len(words)):
-            start = time()
-            word = words[w]
-
-            
-            if corrected.get(word) is not None:
-                word = corrected.get(word)
-        
-            fixed += word + " "
-            print(f"Written a word {w}/{len(words)} ({time()-start})")
-        with open(os.path.join(file_loc, file_name), "w+", encoding="utf-8") as file:
-            file.write(fixed)
-        # We have fixed the file
-        return True
-    
-    # Don't fix file
-    return False
-
-
-def generate_adjusted_ranges(start_year, years_per_thread, num_threads, end_year):
+def generate_ranges(start_year, years_per_thread, num_threads, end_year):
     """
     Generate fixed year ranges for threads, ensuring the last range ends at the specified year.
 
@@ -142,24 +124,46 @@ def generate_adjusted_ranges(start_year, years_per_thread, num_threads, end_year
 
     return ranges
 
-# Parameters
-start_year = 1850
-end_year = 1995
-num_threads = 1
-years_per_thread = 5  # Base number of years per thread
-
-# Generate ranges
-thread_ranges = generate_adjusted_ranges(start_year, years_per_thread, num_threads, end_year)
-threads = []
-
-# Display ranges
-for thread_id, (start, end) in enumerate(thread_ranges, 1):
-    threads.append(Thread(thread_id, start, end))
 
 
 
-for t in threads:
-    t.start()
 
-for t in threads:
-    t.join()
+if __name__ == "__main__":
+    # Download necessary NLTK resources
+    nltk.download('stopwords')  # For stopwords
+
+    embedding_file = "cc.nl.300.vec"  # Pre-trained Dutch embeddings file
+    fasttext_model = gensim.models.KeyedVectors.load_word2vec_format(embedding_file)
+
+    nlp = spacy.load("nl_core_news_sm")
+    root_path = ".\\dataset\\"
+    stop_words = set(stopwords.words('dutch'))
+    
+
+    # Parameters
+    start_year = 1850
+    end_year = 1995
+    num_threads = 29
+    years_per_thread = 5  # Base number of years per thread
+    
+
+    # Generate ranges
+    thread_ranges = generate_ranges(start_year, years_per_thread, num_threads, end_year)
+    threads = []
+
+    # Display ranges
+    for thread_id, (start, end) in enumerate(thread_ranges, 1):
+        threads.append(Thread(thread_id, start, end))
+
+
+
+    for t in threads:
+        t.start()
+
+    for t in threads:
+        t.join()
+
+
+    
+            
+
