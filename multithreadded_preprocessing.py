@@ -7,7 +7,7 @@ import nltk
 import gensim
 from nltk.corpus import stopwords
 import numpy as np
-
+import re
 
 class Thread(threading.Thread):
     def __init__(self, i, start_year, end_year):
@@ -17,68 +17,86 @@ class Thread(threading.Thread):
         self.stop_year = end_year
         self.year_data = {}
     
+    
+    def preprocess_text(self, text:str) -> list[str]:
+        """"
+        Preprocess the text by removing punctuation, numbers, stopwords, and lemmatizing the words.
+        """
 
-    def preprocess(self, text:str) -> list[str]:
-        text = text.lower()
-        doc = nlp(text)
+        clean_text = text.replace('\n', ' ')            # Remove newline characters
         
-        # 4. Lemmatization
-        lemmatized_tokens = [token.lemma_ for token in doc if not token.is_stop]
+        # 1. Clean-up the text a bit
+        clean_text = re.sub(r'[^\w\s]', '', clean_text) # Remove punctuation
+        clean_text = re.sub(r'\d+', '', clean_text)     # Remove numbers
+        clean_text = clean_text.lower()                 # Convert to lowercase
 
-        return lemmatized_tokens
+        # 2. Processing the text with spaCy
+        doc = nlp(clean_text)
+
+        # 3. Removing punctuation and non-alphabetic tokens
+        cleaned_tokens = [token.lemma_ for token in doc if not token.is_stop and token.is_alpha]
+
+        return cleaned_tokens
 
 
 
     # Create document vectors
-    def get_document_vector(self, doc, model):
-        """Compute the document vector as the average of the word vectors."""
+    def get_document_vector(self, doc, model) -> tuple[list, bool]:
+        """
+        Compute the document vector as the average of the word vectors.
+        """
         valid_words = [word for word in doc if word in model.key_to_index]
-        if not valid_words:  # If no valid words, return a zero vector
+        if not valid_words:  # If no valid words, we filter it out be returning True
             return None, True
         
         vector = np.array([model[word] for word in valid_words])
-        
         word_vectors = np.mean(vector, axis=0)
-        print(vector)
-        print(word_vectors)
-        print(vector.shape)
-        print(word_vectors.shape)
-        quit()
         return word_vectors.tolist(), False
 
     def run(self):
+        """"
+        Main thread function that processes the files for the given year range.
+        """	
+
         self.iterate_files()
+        print(f"{self.id:2}: Finished processing years {self.start_year}-{self.stop_year}")
 
 
     def iterate_files(self):
+        """
+        The main loop that iterates over the files for the given year range.
+        """
         for year in range(self.start_year, self.stop_year+1):
             if not os.path.isfile(f"{year}.json"):
                 print(f"{self.id:2}: Working on year {year} ({self.start_year}-{self.stop_year})")
-                paragraph_data = {}
+                year_data = {}
                 year = str(year)
                 files = os.listdir(os.path.join(root_path, str(year)))
-                for f in range(len(files)):
+                paper_names = []
+                used_articles = 0
+                total_articles = 0
+                preprocessed_paragraphs = []
+                document_vectors = []
+                for file in files:
                     # Visualisation stuff
-                    file = files[f]
-                    preprocessed_paragraphs = []
-                    document_vectors = []
                     s = file.split('_')
                     file_name = s[1].lower()
-                    idx = s[0]
-                    used_articles = 0
                     with open(os.path.join(root_path, year, file), 'r', encoding='utf-8') as f:
                         text = f.read().lower()  
                         paragraphs = text.split("---")[:-1] # Last "paragraph" always consists of just \n so we remove this
+                        total_articles += len(paragraphs)
                         for article in paragraphs:
-                            preprocessed = self.preprocess(article)
-                            vector, filtered = self.get_document_vector(preprocessed, fasttext_model)
-                            if not filtered:
-                                preprocessed_paragraphs.append(preprocessed)
-                                document_vectors.append(vector)
-                                used_articles +=1
-                    paragraph_data[idx] = {'name':file_name, 'num_articles':len(paragraphs),'used_articles':used_articles, 'paragraphs':preprocessed_paragraphs, 'embedded':document_vectors}
-                self.save(filename=f"{year}.json", data=paragraph_data)
-                paragraph_data.clear()
+                            lemmatized = self.preprocess_text(article)
+                            if len(lemmatized) > 400: # articles should consist of at least 100 words
+                                vector, filtered = self.get_document_vector(lemmatized, fasttext_model)
+                                if not filtered:
+                                    paper_names.append(file_name)
+                                    preprocessed_paragraphs.append(lemmatized)
+                                    document_vectors.append(vector)
+                                    used_articles +=1
+                
+                year_data = {'articles':(paper_names), 'total_articles':total_articles, 'used_articles':used_articles, 'paragraphs':preprocessed_paragraphs, 'embedded':document_vectors}
+                self.save(filename=f"{year}.json", data=year_data)
             else:
                 print(f"{self.id:2}: Skipping year {year} ({self.start_year}-{self.stop_year})")
         
@@ -86,8 +104,12 @@ class Thread(threading.Thread):
         
         
     def save(self, filename, data):
+        """ 
+        Save the data to a JSON file. 
+        """
+
         with open(filename, 'w', encoding='utf-8') as file:
-            json.dump(data, file, ensure_ascii=False, indent=2)
+            json.dump(data, file, ensure_ascii=False, indent=1)
             file.close()
 
 
@@ -141,29 +163,23 @@ if __name__ == "__main__":
     
 
     # Parameters
-    start_year = 1850
+    start_year = 1855
     end_year = 1995
-    num_threads = 29
-    years_per_thread = 5  # Base number of years per thread
+    num_threads = 20
+    years_per_thread = 7  # Base number of years per thread
     
 
     # Generate ranges
     thread_ranges = generate_ranges(start_year, years_per_thread, num_threads, end_year)
     threads = []
 
-    # Display ranges
+    # Create the threads
     for thread_id, (start, end) in enumerate(thread_ranges, 1):
         threads.append(Thread(thread_id, start, end))
 
-
-
+    # Start the threads
     for t in threads:
         t.start()
 
     for t in threads:
         t.join()
-
-
-    
-            
-

@@ -4,12 +4,11 @@ import regex as re
 from selenium import webdriver
 from selenium.webdriver.firefox.service import Service
 from webdriver_manager.firefox import GeckoDriverManager
-from selenium.webdriver.firefox.options import Options
 from time import sleep, time
 from random import uniform
 
 
-def extract_html(driver:webdriver.Firefox, year:int, page_number:int=1)-> str:
+def extract_html(driver:webdriver.Firefox, year:int, page_number:int=1) -> tuple[str, bool]:
     """
     Given some year and month; open the driver and fetch the page source code 
     """
@@ -18,9 +17,6 @@ def extract_html(driver:webdriver.Firefox, year:int, page_number:int=1)-> str:
     
     # Open the page
     driver.get(base_link)
-
-    
-    #sleep(8) # Results are loaded in via JavaScript so we need to wait + it's nice for their server to not have me spam it.
     html = driver.page_source
     attempt = 1
     max_attempt = 10
@@ -40,7 +36,7 @@ def extract_html(driver:webdriver.Firefox, year:int, page_number:int=1)-> str:
     return html, False
 
 
-def extract_titles_codes(html:str, year:str) -> tuple:
+def extract_titles_codes(html:str, year:str) -> tuple[list, list, list]:
     """
     We extract dates and codes from the source html file. 
     """
@@ -68,7 +64,7 @@ def extract_titles_codes(html:str, year:str) -> tuple:
 
 
     for i in range(len(extracted_dates)):
-        if extracted_dates[i].split("-")[2] == str(year):
+        if extracted_dates[i].split("-")[2] == str(year): # For some reason the query introduced papers that weren't from the year we wanted.
             titles.append(extracted_titles[i])
             codes.append(extracted_codes[i])
             dates.append(extracted_dates[i])
@@ -125,7 +121,7 @@ def download_content(titles:list, codes:list, dates:list, year:int, target_downl
             print(f"Downloading {year}: [{downloads}/{number_of_downloads}]\t(target={target_downloads-1})\tattempt=[{tries}/{try_limit}]\t({wait_time:.2f})".ljust(150), end="\r")
             # Download and save the content to the file
             try:
-                response = requests.get(download_string, stream=True, timeout=(5, 60))  # Use stream=True for large files
+                response = requests.get(download_string, stream=True, timeout=(5, 60))
                 if response.status_code == 200:
                     with open(custom_filename, "wb") as file:
                         for chunk in response.iter_content(chunk_size=8192):  # Download in chunks
@@ -146,17 +142,10 @@ def download_content(titles:list, codes:list, dates:list, year:int, target_downl
                 else:
                     print(f"Response code {response.status_code}, retrying... [{downloads}/{number_of_downloads}]".ljust(150))
                     tries += 1
-                
-            except requests.exceptions.ReadTimeout:
-                print(f"ReadTimeout error, retrying... [{downloads}/{number_of_downloads}]".ljust(150))
-                tries += 1
-                sleep(10)
-            except requests.exceptions.ConnectionError:
-                print(f"ConnectionError error, retrying... [{downloads}/{number_of_downloads}]".ljust(150))
-                tries += 1
-                sleep(10)
-            except requests.exceptions.ConnectTimeout:
-                print(f"ConnectTimeout error, retrying... [{downloads}/{number_of_downloads}]".ljust(150))
+            
+            # Retry on timeout or connection error
+            except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectionError, requests.exceptions.ConnectTimeout) as e:
+                print(f"{type(e).__name__} error, retrying... [{downloads}/{number_of_downloads}]".ljust(150))
                 tries += 1
                 sleep(10)
 
@@ -165,10 +154,10 @@ def download_content(titles:list, codes:list, dates:list, year:int, target_downl
         
 
 if __name__ == "__main__":
-    
+    # Can also use ChromeDriverManager().install() for Chrome
     driver = webdriver.Firefox(service=Service(GeckoDriverManager().install()))
     target_articles = 1000
-    start_year = 1949 
+    start_year = 1855 
     final_year = 1995
 
     for y in range(final_year-start_year + 1):

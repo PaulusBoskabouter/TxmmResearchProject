@@ -1,4 +1,6 @@
 dataset/
 test.py
-preprocessed/
 cc.nl.300.vec
+*.png
+.vscode/
+.pytest_cache/
