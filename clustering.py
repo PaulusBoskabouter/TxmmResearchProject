@@ -1,6 +1,4 @@
-import os
 import matplotlib.pyplot as plt
-from sklearn.feature_extraction.text import TfidfVectorizer
 from nltk.corpus import stopwords
 from collections import Counter
 from wordcloud import WordCloud
@@ -27,12 +25,12 @@ def plot_elbow_method(vectors, max_clusters):
     plt.yticks(fontsize=12)
     plt.title('Elbow Method to Determine Optimal Clusters', fontsize=16)
     plt.xlabel('Number of Clusters', fontsize=14)
-    plt.ylabel('Distortion (Inertia)', fontsize=14)
+    plt.ylabel('Inertia', fontsize=14)
     plt.savefig('Elbow_plot.png')
     print("Saved Elbowplot!")
 
 
-def plot_kmeans_cluster(document_matrix, optimal_clusters=5):
+def plot_kmeans_cluster(document_matrix, optimal_clusters=5) -> np.array:
     kmeans = KMeans(n_clusters=optimal_clusters, random_state=42)
     kmeans.fit(document_matrix)
 
@@ -62,14 +60,14 @@ def plot_kmeans_cluster(document_matrix, optimal_clusters=5):
 
 
 
-def create_wordclouds(optimal_clusters):
+def create_wordclouds(optimal_clusters) -> dict:
     year_to_cluster = {}
 
     for y in years:
         year_to_cluster[y] = [0 for _ in range(optimal_clusters)]
     
     for target_cluster in range(optimal_clusters):
-        print(f"Creating wordcloud for cluster {target_cluster}")
+        print(f"Creating wordcloud for cluster {target_cluster+1}")
         index = 0
         words = []
         for year in years:
@@ -94,12 +92,12 @@ def create_wordclouds(optimal_clusters):
         plt.figure(figsize=(10, 6))
         plt.imshow(wordcloud, interpolation='bilinear')
         plt.axis("off")  # Turn off the axis
-        plt.title(f"Word Cloud of cluster {target_cluster+1}", fontsize=16)
+        plt.title(f"Word Cloud of cluster {target_cluster+1}", fontsize=25)
         plt.savefig(f"Wordcloud_cluster_{target_cluster+1}.png")
-        print(f"Saved Wordcloud for cluster {target_cluster+1}")
+        print(f"Saved as Wordcloud_cluster_{target_cluster+1}.png")
     return year_to_cluster
     
-def create_stacked_barplot(year_to_cluster):
+def create_stacked_barplot(year_to_cluster) -> None:
     # Convert data to a NumPy array for easier manipulation
     years = list(year_to_cluster.keys())
     clusters = len(next(iter(year_to_cluster.values())))  # Number of clusters, based on first entry
@@ -168,8 +166,6 @@ if __name__ == "__main__":
     print("used paragraphs: ", used_paragraphs)
             
     document_matrix = np.array(document_matrix)
-    
-    print(document_matrix.shape)
     
     # 1. Determine the optimal number of clusters
     plot_elbow_method(document_matrix, max_clusters=15)
